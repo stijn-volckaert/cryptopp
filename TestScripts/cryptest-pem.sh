@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 
-PWD_DIR=$(pwd)
-function cleanup {
-	cd "$PWD_DIR"
-}
-trap cleanup EXIT
-
+#############################################################################
+#
+# This script tests the cryptopp-pem gear.
+#
+# Written and placed in public domain by Jeffrey Walton.
+#
+# Crypto++ Library is copyrighted as a compilation and (as of version 5.6.2)
+# licensed under the Boost Software License 1.0, while the individual files
+# in the compilation are all public domain.
+#
 #############################################################################
 
 GREP=grep
 SED=sed
 AWK=awk
 MAKE=make
+
+# Set make jobs to 2 if not set
+MAKEJOBS="${MAKEJOBS:-2}"
 
 # Fixup, Solaris and friends
 if [[ (-d /usr/xpg4/bin) ]]; then
@@ -31,7 +38,7 @@ if [[ "$IS_DARWIN" -ne 0 ]]; then
 fi
 
 # Fixup for Solaris and BSDs
-if [[ ! -z $(command -v gmake) ]]; then
+if command -v gmake 2>/dev/null; then
 	MAKE=gmake
 else
 	MAKE=make
@@ -39,30 +46,32 @@ fi
 
 #############################################################################
 
-if [[ -z $(command -v "$MAKE") ]]; then
+if ! command -v "${MAKE}" 2>/dev/null; then
 	echo "Cannot find $MAKE. Things may fail."
 fi
 
-if [[ -z $(command -v curl) ]]; then
+if ! command -v curl 2>/dev/null; then
 	echo "Cannot find cURL. Things may fail."
 fi
 
-if [[ -z $(command -v openssl) ]]; then
+if ! command -v openssl 2>/dev/null; then
 	echo "Cannot find openssl. Things may fail."
 fi
 
 #############################################################################
 
-files=(pem_create.sh pem_verify.sh pem_test.cxx
+files=(pem_create.sh pem_verify.sh pem_test.cxx pem_eol.cxx
        pem.h pem_common.cpp pem_common.h pem_read.cpp pem_write.cpp
-	   x509cert.h x509cert.cpp)
+       x509cert.h x509cert.cpp)
 
 for file in "${files[@]}"; do
 	echo "Downloading $file"
-	if ! curl -o "$file" --silent --insecure "https://raw.githubusercontent.com/noloader/cryptopp-pem/master/$file"; then
+	if ! curl -L -s -o "$file" "https://raw.githubusercontent.com/noloader/cryptopp-pem/master/$file"; then
 		echo "$file download failed"
 		exit 1
 	fi
+    # Throttle
+    sleep 1
 done
 
 # Add execute to scripts
@@ -81,7 +90,7 @@ echo ""
 
 "$MAKE" clean &>/dev/null
 
-if ! "$MAKE" -j 2; then
+if ! "$MAKE" -j ${MAKEJOBS}; then
 	echo "make failed."
 	exit 1
 fi

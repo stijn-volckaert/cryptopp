@@ -26,7 +26,7 @@ NAMESPACE_BEGIN(CryptoPP)
 /// \details Keccak will likely change in the future to accommodate extensibility of the
 ///   round function and the XOF functions.
 /// \details Perform the following to specify a different digest size. The class will use F1600,
-///   XOF d=0x01, and a new vaue for <tt>r()</tt> (which will be <tt>200-2*24 = 152</tt>).
+///   XOF d=0x01, and a new value for <tt>r()</tt> (which will be <tt>200-2*24 = 152</tt>).
 ///   <pre>  Keccack_192 : public Keccack
 ///   {
 ///     public:
@@ -99,19 +99,19 @@ private:
 
 /// \brief Keccak-224 message digest
 /// \since Crypto++ 5.6.4
-DOCUMENTED_TYPEDEF(Keccak_Final<28>, Keccak_224);;
+DOCUMENTED_TYPEDEF(Keccak_Final<28>, Keccak_224);
 
 /// \brief Keccak-256 message digest
 /// \since Crypto++ 5.6.4
-DOCUMENTED_TYPEDEF(Keccak_Final<32>, Keccak_256);;
+DOCUMENTED_TYPEDEF(Keccak_Final<32>, Keccak_256);
 
 /// \brief Keccak-384 message digest
 /// \since Crypto++ 5.6.4
-DOCUMENTED_TYPEDEF(Keccak_Final<48>, Keccak_384);;
+DOCUMENTED_TYPEDEF(Keccak_Final<48>, Keccak_384);
 
 /// \brief Keccak-512 message digest
 /// \since Crypto++ 5.6.4
-DOCUMENTED_TYPEDEF(Keccak_Final<64>, Keccak_512);;
+DOCUMENTED_TYPEDEF(Keccak_Final<64>, Keccak_512);
 
 NAMESPACE_END
 

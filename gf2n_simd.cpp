@@ -16,7 +16,7 @@
 //    expected to perform, like Common Subexpression Elimination to save
 //    on variables (among others). Note that the compiler may miss the
 //    optimization so the IACR paper is useful. However, the code is GPL3
-//    and toxic for some users of the library...
+//    and toxic for some users of the library, so it is not used here...
 
 #include "pch.h"
 #include "config.h"
@@ -37,6 +37,9 @@
 #if defined(CRYPTOPP_ALTIVEC_AVAILABLE)
 # include "ppc_simd.h"
 #endif
+
+// Squash MS LNK4221 and libtool warnings
+extern const char GF2N_SIMD_FNAME[] = __FILE__;
 
 ANONYMOUS_NAMESPACE_BEGIN
 
@@ -305,7 +308,7 @@ GF2NT_233_Reduce_CLMUL(__m128i& c3, __m128i& c2, __m128i& c1, __m128i& c0)
 
 // ************************* Power8 ************************* //
 
-#if (CRYPTOPP_POWER8_VMULL_AVAILABLE)
+#if (CRYPTOPP_POWER8_VMULL_AVAILABLE) && 0
 
 using CryptoPP::byte;
 using CryptoPP::word;
@@ -536,7 +539,7 @@ GF2NT_233_Square_Reduce_ARMv8(const word* pA, word* pC)
     vst1q_u32(pCC+4, vreinterpretq_u32_u64(c1));
 }
 
-#elif (CRYPTOPP_POWER8_VMULL_AVAILABLE)
+#elif (CRYPTOPP_POWER8_VMULL_AVAILABLE) && 0
 
 void
 GF2NT_233_Multiply_Reduce_POWER8(const word* pA, const word* pB, word* pC)

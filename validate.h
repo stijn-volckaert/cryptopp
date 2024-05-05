@@ -21,7 +21,7 @@ NAMESPACE_BEGIN(CryptoPP)
 NAMESPACE_BEGIN(Test)
 
 // A hint to help locate TestData/ and TestVectors/ after install. Due to
-// execve the path can be malicious. If the path is ficticous then we move
+// execve the path can be malicious. If the path is fictitious then we move
 // onto the next potential path. Also note we only read from the path; we
 // never write through it. Storage for the string is in test.cpp.
 extern std::string g_argvPathHint;
@@ -60,6 +60,7 @@ bool ValidateTiger();
 bool ValidateRIPEMD();
 bool ValidatePanama();
 bool ValidateWhirlpool();
+bool ValidateLSH();
 
 bool ValidateSM3();
 bool ValidateBLAKE2s();
@@ -172,6 +173,7 @@ bool TestRounding();
 bool TestHuffmanCodes();
 // http://github.com/weidai11/cryptopp/issues/346
 bool TestASN1Parse();
+bool TestASN1Functions();
 // https://github.com/weidai11/cryptopp/pull/334
 bool TestStringSink();
 // Additional tests due to no coverage
@@ -322,7 +324,7 @@ inline std::string DataDir(const std::string& filename)
 	std::string name;
 	std::ifstream file;
 
-#if CRYPTOPP_CXX11_DYNAMIC_INIT
+#if CRYPTOPP_CXX11_STATIC_INIT
 	static std::string path = AddSeparator(GetDataDir());
 	name = path + filename;
 	file.open(name.c_str());

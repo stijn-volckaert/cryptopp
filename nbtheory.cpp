@@ -18,43 +18,15 @@
 
 NAMESPACE_BEGIN(CryptoPP)
 
+// Keep sync'd with primetab.cpp
+const unsigned int maxPrimeTableSize = 3511;
 const word s_lastSmallPrime = 32719;
-
-struct NewPrimeTable
-{
-	std::vector<word16> * operator()() const
-	{
-		const unsigned int maxPrimeTableSize = 3511;
-
-		member_ptr<std::vector<word16> > pPrimeTable(new std::vector<word16>);
-		std::vector<word16> &primeTable = *pPrimeTable;
-		primeTable.reserve(maxPrimeTableSize);
-
-		primeTable.push_back(2);
-		unsigned int testEntriesEnd = 1;
-
-		for (unsigned int p=3; p<=s_lastSmallPrime; p+=2)
-		{
-			unsigned int j;
-			for (j=1; j<testEntriesEnd; j++)
-				if (p%primeTable[j] == 0)
-					break;
-			if (j == testEntriesEnd)
-			{
-				primeTable.push_back(word16(p));
-				testEntriesEnd = UnsignedMin(54U, primeTable.size());
-			}
-		}
-
-		return pPrimeTable.release();
-	}
-};
 
 const word16 * GetPrimeTable(unsigned int &size)
 {
-	const std::vector<word16> &primeTable = Singleton<std::vector<word16>, NewPrimeTable>().Ref();
-	size = (unsigned int)primeTable.size();
-	return &primeTable[0];
+	extern const word16 precomputedPrimeTable[maxPrimeTableSize];
+	size = maxPrimeTableSize;
+	return precomputedPrimeTable;
 }
 
 bool IsSmallPrime(const Integer &p)
@@ -490,7 +462,7 @@ Integer MihailescuProvablePrime(RandomNumberGenerator &rng, unsigned int pbits)
 		// progression p = p_0 + \lambda * q2 = p_0 + 2 * \lambda * q,
 		// with q the recursively generated prime above. We will be able
 		// to use Lucas tets for proving primality. A trick of Quisquater
-		// allows taking q > cubic_root(p) rather then square_root: this
+		// allows taking q > cubic_root(p) rather than square_root: this
 		// decreases the recursion.
 
 		p.Randomize(rng, minP, maxP, Integer::ANY, 1, q2);
@@ -847,7 +819,7 @@ Integer Lucas(const Integer &e, const Integer &pIn, const Integer &n)
 	return m.ConvertOut(v);
 }
 
-// This is Peter Montgomery's unpublished Lucas sequence evalutation algorithm.
+// This is Peter Montgomery's unpublished Lucas sequence evaluation algorithm.
 // The total number of multiplies and squares used is less than the binary
 // algorithm (see above).  Unfortunately I can't get it to run as fast as
 // the binary algorithm because of the extra overhead.

@@ -22,16 +22,16 @@
 // 0.3 to 0.4 cpb profit
 #if defined(__SSE2__) || defined(_M_X64)
 # include <emmintrin.h>
-// Clang intrinsic casts
-# define M128_CAST(x) ((__m128i *)(void *)(x))
-# define CONST_M128_CAST(x) ((const __m128i *)(const void *)(x))
 #endif
 
-
 #if defined(__aarch32__) || defined(__aarch64__) || defined(_M_ARM64)
-# if (CRYPTOPP_ARM_NEON_HEADER)
+# if (CRYPTOPP_ARM_NEON_HEADER) || (CRYPTOPP_ARM_ASIMD_AVAILABLE)
 #  include <arm_neon.h>
 # endif
+#endif
+
+#if defined(__ALTIVEC__)
+# include "ppc_simd.h"
 #endif
 
 ANONYMOUS_NAMESPACE_BEGIN
@@ -63,7 +63,7 @@ inline void XorBuffer(byte *output, const byte *input, const byte *mask, size_t 
     CRYPTOPP_ASSERT(count >= 16 && (count % 16 == 0));
 
 #if defined(CRYPTOPP_DISABLE_ASM)
-	xorbuf(output, input, mask, count);
+    xorbuf(output, input, mask, count);
 
 #elif defined(__SSE2__) || defined(_M_X64)
     for (size_t i=0; i<count; i+=16)
@@ -75,6 +75,10 @@ inline void XorBuffer(byte *output, const byte *input, const byte *mask, size_t 
 #elif defined(__aarch32__) || defined(__aarch64__) || defined(_M_ARM64)
     for (size_t i=0; i<count; i+=16)
         vst1q_u8(output+i, veorq_u8(vld1q_u8(input+i), vld1q_u8(mask+i)));
+
+#elif defined(__ALTIVEC__)
+    for (size_t i=0; i<count; i+=16)
+        VecStore(VecXor(VecLoad(input+i), VecLoad(mask+i)), output+i);
 
 #else
     xorbuf(output, input, mask, count);
@@ -89,7 +93,16 @@ inline void XorBuffer(byte *buf, const byte *mask, size_t count)
 // Borrowed from CMAC, but little-endian representation
 inline void GF_Double(byte *out, const byte* in, unsigned int len)
 {
-#if defined(_M_X64) || defined(_M_ARM64) || defined(_LP64) || defined(__LP64__)
+#if defined(CRYPTOPP_WORD128_AVAILABLE)
+    word128 carry = 0, x;
+    for (size_t i=0, idx=0; i<len/16; ++i, idx+=16)
+    {
+        x = GetWord<word128>(false, LITTLE_ENDIAN_ORDER, in+idx);
+        word128 y = (x >> 127); x = (x << 1) + carry;
+        PutWord<word128>(false, LITTLE_ENDIAN_ORDER, out+idx, x);
+        carry = y;
+    }
+#elif defined(_M_X64) || defined(_M_ARM64) || defined(_LP64) || defined(__LP64__)
     word64 carry = 0, x;
     for (size_t i=0, idx=0; i<len/8; ++i, idx+=8)
     {
@@ -240,50 +253,120 @@ void XTS_ModeBase::ResizeBuffers()
     m_xregister.New(GetBlockCipher().BlockSize()*ParallelBlocks);
 }
 
+// ProcessData runs either 12-4-1 blocks, 8-2-1 or 4-1 blocks. Which is
+// selected depends on ParallelBlocks in the header file. 12-4-1 or 8-2-1
+// can be used on Aarch64 and PowerPC. Intel should use 4-1 due to lack
+// of registers. The unneeded code paths should be removed by optimizer.
+// The extra gyrations save us 1.8 cpb on Aarch64 and 2.1 cpb on PowerPC.
 void XTS_ModeBase::ProcessData(byte *outString, const byte *inString, size_t length)
 {
     // data unit is multiple of 16 bytes
     CRYPTOPP_ASSERT(length % BlockSize() == 0);
 
+    enum { lastParallelBlock = ParallelBlocks-1 };
     const unsigned int blockSize = GetBlockCipher().BlockSize();
     const size_t parallelSize = blockSize*ParallelBlocks;
-    size_t i = 0;
 
     // encrypt the data unit, optimal size at a time
-    for ( ; i+parallelSize<=length; i+=parallelSize)
+    while (length >= parallelSize)
     {
-        // If this fires the GF_Double'ing below is not in sync
-        CRYPTOPP_ASSERT(ParallelBlocks == 4);
+        // m_xregister[0] always points to the next tweak.
+        GF_Double(m_xregister+1*blockSize, m_xregister+0*blockSize, blockSize);
+        GF_Double(m_xregister+2*blockSize, m_xregister+1*blockSize, blockSize);
+        GF_Double(m_xregister+3*blockSize, m_xregister+2*blockSize, blockSize);
 
+        if (ParallelBlocks > 4)
+        {
+            GF_Double(m_xregister+4*blockSize, m_xregister+3*blockSize, blockSize);
+            GF_Double(m_xregister+5*blockSize, m_xregister+4*blockSize, blockSize);
+            GF_Double(m_xregister+6*blockSize, m_xregister+5*blockSize, blockSize);
+            GF_Double(m_xregister+7*blockSize, m_xregister+6*blockSize, blockSize);
+        }
+        if (ParallelBlocks > 8)
+        {
+            GF_Double(m_xregister+8*blockSize, m_xregister+7*blockSize, blockSize);
+            GF_Double(m_xregister+9*blockSize, m_xregister+8*blockSize, blockSize);
+            GF_Double(m_xregister+10*blockSize, m_xregister+9*blockSize, blockSize);
+            GF_Double(m_xregister+11*blockSize, m_xregister+10*blockSize, blockSize);
+        }
+
+        // merge the tweak into the input block
+        XorBuffer(m_xworkspace, inString, m_xregister, parallelSize);
+
+        // encrypt one block, merge the tweak into the output block
+        GetBlockCipher().AdvancedProcessBlocks(m_xworkspace, m_xregister,
+            outString, parallelSize, BlockTransformation::BT_AllowParallel);
+
+        // m_xregister[0] always points to the next tweak.
+        GF_Double(m_xregister+0, m_xregister+lastParallelBlock*blockSize, blockSize);
+
+        inString += parallelSize;
+        outString += parallelSize;
+        length -= parallelSize;
+    }
+
+    // encrypt the data unit, 4 blocks at a time
+    while (ParallelBlocks == 12 && length >= blockSize*4)
+    {
         // m_xregister[0] always points to the next tweak.
         GF_Double(m_xregister+1*blockSize, m_xregister+0*blockSize, blockSize);
         GF_Double(m_xregister+2*blockSize, m_xregister+1*blockSize, blockSize);
         GF_Double(m_xregister+3*blockSize, m_xregister+2*blockSize, blockSize);
 
         // merge the tweak into the input block
-        XorBuffer(m_xworkspace, inString+i, m_xregister, parallelSize);
+        XorBuffer(m_xworkspace, inString, m_xregister, blockSize*4);
 
         // encrypt one block, merge the tweak into the output block
-        GetBlockCipher().AdvancedProcessBlocks(m_xworkspace, m_xregister, outString+i, parallelSize, BlockTransformation::BT_AllowParallel);
+        GetBlockCipher().AdvancedProcessBlocks(m_xworkspace, m_xregister,
+            outString, blockSize*4, BlockTransformation::BT_AllowParallel);
 
         // m_xregister[0] always points to the next tweak.
-        GF_Double(m_xregister+0, m_xregister+(ParallelBlocks-1)*blockSize, blockSize);
+        GF_Double(m_xregister+0, m_xregister+3*blockSize, blockSize);
+
+        inString += blockSize*4;
+        outString += blockSize*4;
+        length -= blockSize*4;
+    }
+
+    // encrypt the data unit, 2 blocks at a time
+    while (ParallelBlocks == 8 && length >= blockSize*2)
+    {
+        // m_xregister[0] always points to the next tweak.
+        GF_Double(m_xregister+1*blockSize, m_xregister+0*blockSize, blockSize);
+
+        // merge the tweak into the input block
+        XorBuffer(m_xworkspace, inString, m_xregister, blockSize*2);
+
+        // encrypt one block, merge the tweak into the output block
+        GetBlockCipher().AdvancedProcessBlocks(m_xworkspace, m_xregister,
+            outString, blockSize*2, BlockTransformation::BT_AllowParallel);
+
+        // m_xregister[0] always points to the next tweak.
+        GF_Double(m_xregister+0, m_xregister+1*blockSize, blockSize);
+
+        inString += blockSize*2;
+        outString += blockSize*2;
+        length -= blockSize*2;
     }
 
     // encrypt the data unit, blocksize at a time
-    for ( ; i<length; i+=blockSize)
+    while (length)
     {
         // merge the tweak into the input block
-        XorBuffer(m_xworkspace, inString+i, m_xregister, blockSize);
+        XorBuffer(m_xworkspace, inString, m_xregister, blockSize);
 
         // encrypt one block
         GetBlockCipher().ProcessBlock(m_xworkspace);
 
         // merge the tweak into the output block
-        XorBuffer(outString+i, m_xworkspace, m_xregister, blockSize);
+        XorBuffer(outString, m_xworkspace, m_xregister, blockSize);
 
         // Multiply T by alpha
         GF_Double(m_xregister, blockSize);
+
+        inString += blockSize;
+        outString += blockSize;
+        length -= blockSize;
     }
 }
 
